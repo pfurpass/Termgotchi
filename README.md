@@ -17,7 +17,7 @@ If your server suffers, so does your pet. Keep your system healthy — keep your
 ## Installation
 
 ```bash
-git clone https://github.com/yourname/serverpet.git
+git clone https://github.com/pfurpass/Termgotchi.git
 cd serverpet
 pip install -e .
 ```
@@ -267,4 +267,4 @@ serverpet/
 
 ## License
 
-MIT — do whatever you want with it. 🐾
+Apache — do whatever you want with it. 🐾
