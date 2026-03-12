@@ -18,7 +18,7 @@ If your server suffers, so does your pet. Keep your system healthy — keep your
 
 ```bash
 git clone https://github.com/pfurpass/Termgotchi.git
-cd serverpet
+cd Termgotchi
 pip install -e .
 ```
 
