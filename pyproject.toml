@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serverpet"
+version = "1.0.0"
+description = "A Tamagotchi-style virtual pet that lives in your terminal and reflects the health of your server."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["cli", "monitoring", "terminal", "tamagotchi", "devops", "fun"]
+dependencies = [
+    "psutil>=5.9",
+    "rich>=13.0",
+]
+
+[project.scripts]
+serverpet = "termgotchi.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["termgotchi*"]
