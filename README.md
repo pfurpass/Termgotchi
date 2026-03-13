@@ -12,6 +12,9 @@
 ServerPet turns boring system monitoring into a living creature you must care for.
 If your server suffers, so does your pet. Keep your system healthy — keep your pet happy.
 
+> ⚠️ **Not for production use.** Termgotchi is a fun toy project 
+> for local dev machines — not a replacement for real monitoring tools.
+
 ---
 
 ## Installation
@@ -268,3 +271,4 @@ serverpet/
 ## License
 
 Apache — do whatever you want with it. 🐾
+
