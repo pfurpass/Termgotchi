@@ -12,7 +12,7 @@
 ServerPet turns boring system monitoring into a living creature you must care for.
 If your server suffers, so does your pet. Keep your system healthy — keep your pet happy.
 
-> ⚠️ **Not for production use.** Termgotchi is a fun toy project 
+> ⚠️ **Not for production use.** ServerPet is a fun toy project
 > for local dev machines — not a replacement for real monitoring tools.
 
 ---
@@ -107,6 +107,8 @@ serverpet watch
 │   CPU         [████████████████]  23.0%                          │
 │   RAM         [████████████░░░░]  54.0%                          │
 │   Disk        [██████████░░░░░░]  60.0%                          │
+│   Latency     12.3ms                                             │
+│   Pkt Loss    0.0%                                               │
 │   Processes   182                                                 │
 │   Uptime      2d 4h 17m                                          │
 │                                                                   │
@@ -130,6 +132,8 @@ Press `Ctrl+C` to exit.
 | RAM > 90% | Energy drains faster |
 | Disk > 75% | Hunger increases faster |
 | Disk > 95% | Health begins to drop |
+| **Packet loss > 10%** | **Pet gets dizzy and confused 😵** |
+| **Network latency > 200ms** | **Pet becomes sluggish and slow 🐌** |
 | All stable | Happiness climbs naturally 😊 |
 | High hunger + low cleanliness | Health declines |
 | Good conditions over time | Pet naturally recovers |
@@ -148,7 +152,7 @@ If **health reaches 0**, the pet dies. Use `serverpet start --reset` to begin ag
 | `alien` | Extraterrestrial system watcher |
 | `dragon` | Powerful winged guardian |
 
-Each species has **11 unique mood states** rendered in ASCII art.
+Each species has **13 unique mood states** rendered in ASCII art.
 
 ---
 
@@ -174,7 +178,7 @@ Personalities change how fast pet stats decay and how the pet reacts to events.
 | **Health** | Overall wellbeing | CPU/RAM/Disk are critical, hunger/cleanliness are low |
 | **Hunger** | How fed the pet is | Over time; faster with high disk usage |
 | **Energy** | How rested the pet is | Over time; faster with high CPU |
-| **Happiness** | Mood quality | Hunger/cleanliness are low; naturally rises when stable |
+| **Happiness** | Mood quality | Hunger/cleanliness are low; packet loss; naturally rises when stable |
 | **Cleanliness** | Hygiene level | Slowly over time; faster with high RAM |
 
 ---
@@ -192,6 +196,8 @@ Personalities change how fast pet stats decay and how the pet reacts to events.
 | 🤒 Sick | Health < 35% |
 | 😋 Hungry | Hunger > 80% |
 | 💀 Dying | Health < 15% |
+| 😵 Dizzy | Packet loss > 10% |
+| 🐌 Sluggish | Network latency > 200ms |
 
 ---
 
@@ -271,4 +277,3 @@ serverpet/
 ## License
 
 Apache — do whatever you want with it. 🐾
-

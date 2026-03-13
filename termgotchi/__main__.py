@@ -23,6 +23,7 @@ Usage:
 import json
 import time
 import random
+import socket
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -44,7 +45,6 @@ STATE_FILE = STATE_DIR / "state.json"
 VERSION    = "1.0.0"
 
 # ─── ASCII Art ─────────────────────────────────────────────────────────────────
-#   Each species has a dict of mood → list[str] (3 lines, fixed width 9 chars).
 
 ART: dict[str, dict[str, list[str]]] = {
     "cat": {
@@ -59,6 +59,8 @@ ART: dict[str, dict[str, list[str]]] = {
         "dying":      [" /\\_/\\ ", "( ✖_✖ )", " (   )  "],
         "eating":     [" /\\_/\\ ", "(≧▽≦) ", " >nom<  "],
         "playing":    [" /\\_/\\ ", "(≧ω≦) ", " >yay<  "],
+        "dizzy":      [" /\\_/\\ ", "( @_@ )", " > ? <  "],
+        "sluggish":   [" /\\_/\\ ", "( -_- )", " > … <  "],
     },
     "robot": {
         "happy":      [" [^‿^] ", " | ♥ | ", " |___| "],
@@ -72,6 +74,8 @@ ART: dict[str, dict[str, list[str]]] = {
         "dying":      [" [✖_✖] ", " |SOS| ", " |___| "],
         "eating":     [" [^ω^] ", " |PWR| ", " |___| "],
         "playing":    [" [^_^] ", " |FUN| ", " |___| "],
+        "dizzy":      [" [@_@] ", " |???| ", " |___| "],
+        "sluggish":   [" [~_~] ", " |LAG| ", " |___| "],
     },
     "blob": {
         "happy":      ["  ___  ", " (^‿^) ", "  \\_/  "],
@@ -85,6 +89,8 @@ ART: dict[str, dict[str, list[str]]] = {
         "dying":      ["  ___  ", " (✖_✖) ", "  \\_/  "],
         "eating":     ["  ___  ", "(≧▽≦) ", "  \\_/  "],
         "playing":    ["  ___  ", "(≧ω≦) ", "  \\_/  "],
+        "dizzy":      ["  ___  ", " (@_@) ", "  \\_/  "],
+        "sluggish":   ["  ___  ", " (-_-) ", "  \\_/  "],
     },
     "alien": {
         "happy":      ["  /^\\  ", " (^‿^) ", "  ) (  "],
@@ -98,6 +104,8 @@ ART: dict[str, dict[str, list[str]]] = {
         "dying":      ["  /^\\  ", " (✖_✖) ", "  ) (  "],
         "eating":     ["  /^\\  ", "(≧▽≦) ", "  ) (  "],
         "playing":    ["  /^\\  ", "(≧ω≦) ", "  ) (  "],
+        "dizzy":      ["  /^\\  ", " (@_@) ", "  ) (  "],
+        "sluggish":   ["  /^\\  ", " (-_-) ", "  ) (  "],
     },
     "dragon": {
         "happy":      [" <<^>> ", " (^‿^) ", "/|   |\\ "],
@@ -111,10 +119,12 @@ ART: dict[str, dict[str, list[str]]] = {
         "dying":      [" <<^>> ", " (✖_✖) ", "/|   |\\ "],
         "eating":     [" <<^>> ", "(≧▽≦) ", "/|   |\\ "],
         "playing":    [" <<^>> ", "(≧ω≦) ", "/|   |\\ "],
+        "dizzy":      [" <<^>> ", " (@_@) ", "/|   |\\ "],
+        "sluggish":   [" <<^>> ", " (-_-) ", "/|   |\\ "],
     },
 }
 
-SPECIES      = list(ART.keys())
+SPECIES       = list(ART.keys())
 PERSONALITIES = ["lazy", "energetic", "dramatic", "grumpy", "cheerful", "stoic"]
 
 # ─── Color Themes ──────────────────────────────────────────────────────────────
@@ -197,7 +207,6 @@ def get_state() -> dict:
         s["achievements"] = {}
         s["created_at"] = datetime.now().isoformat()
         save_state(s)
-    # Backfill any missing keys from defaults
     for k, v in DEFAULT_STATE.items():
         if k not in s:
             s[k] = v
@@ -214,14 +223,14 @@ def get_metrics() -> dict:
     m["cpu"] = psutil.cpu_percent(interval=0.3)
 
     mem = psutil.virtual_memory()
-    m["ram"]         = mem.percent
-    m["ram_used_gb"] = round(mem.used  / 1024**3, 2)
-    m["ram_total_gb"]= round(mem.total / 1024**3, 2)
+    m["ram"]          = mem.percent
+    m["ram_used_gb"]  = round(mem.used  / 1024**3, 2)
+    m["ram_total_gb"] = round(mem.total / 1024**3, 2)
 
     try:
         disk = psutil.disk_usage("/")
-        m["disk"]        = disk.percent
-        m["disk_free_gb"]= round(disk.free  / 1024**3, 2)
+        m["disk"]         = disk.percent
+        m["disk_free_gb"] = round(disk.free  / 1024**3, 2)
         m["disk_total_gb"]= round(disk.total / 1024**3, 2)
     except Exception:
         m["disk"] = m["disk_free_gb"] = m["disk_total_gb"] = 0
@@ -233,11 +242,31 @@ def get_metrics() -> dict:
     except Exception:
         m["net_sent"] = m["net_recv"] = 0
 
-    m["procs"]        = len(psutil.pids())
-    uptime_s          = time.time() - psutil.boot_time()
-    m["uptime_s"]     = uptime_s
-    m["uptime_days"]  = uptime_s / 86400
-    m["uptime_str"]   = _fmt_uptime(uptime_s)
+    # ── Network latency via socket connect ──────────────────────────────
+    try:
+        _t = time.time()
+        _sock = socket.create_connection(("8.8.8.8", 53), timeout=1)
+        _sock.close()
+        m["net_latency"] = round((time.time() - _t) * 1000, 1)
+    except Exception:
+        m["net_latency"] = None
+
+    # ── Packet loss via dropin/dropout delta ────────────────────────────
+    try:
+        _n1 = psutil.net_io_counters()
+        time.sleep(0.05)
+        _n2 = psutil.net_io_counters()
+        _drop  = max(0, (_n2.dropin  - _n1.dropin) + (_n2.dropout - _n1.dropout))
+        _total = max(0, (_n2.packets_recv - _n1.packets_recv) + (_n2.packets_sent - _n1.packets_sent)) + _drop
+        m["packet_loss_pct"] = round((_drop / _total) * 100, 1) if _total > 0 else 0.0
+    except Exception:
+        m["packet_loss_pct"] = 0.0
+
+    m["procs"]       = len(psutil.pids())
+    uptime_s         = time.time() - psutil.boot_time()
+    m["uptime_s"]    = uptime_s
+    m["uptime_days"] = uptime_s / 86400
+    m["uptime_str"]  = _fmt_uptime(uptime_s)
 
     try:
         temps = psutil.sensors_temperatures()
@@ -255,10 +284,10 @@ def get_metrics() -> dict:
 def _fmt_uptime(s: float) -> str:
     d, s = divmod(int(s), 86400)
     h, s = divmod(s, 3600)
-    m     = s // 60
-    if d:  return f"{d}d {h}h {m}m"
-    if h:  return f"{h}h {m}m"
-    return f"{m}m"
+    mi    = s // 60
+    if d:  return f"{d}d {h}h {mi}m"
+    if h:  return f"{h}h {mi}m"
+    return f"{mi}m"
 
 
 # ─── Pet Logic ─────────────────────────────────────────────────────────────────
@@ -269,19 +298,29 @@ def _determine_mood(s: dict, m: dict) -> str:
     h, hunger, energy, happy, clean = (
         s["health"], s["hunger"], s["energy"], s["happiness"], s["cleanliness"]
     )
-    cpu, ram, disk = m.get("cpu", 0), m.get("ram", 0), m.get("disk", 0)
+    cpu  = m.get("cpu",  0)
+    ram  = m.get("ram",  0)
+    disk = m.get("disk", 0)
+    packet_loss = m.get("packet_loss_pct", 0)
+    latency     = m.get("net_latency")
     p = s.get("personality", "cheerful")
 
-    if h < 15:          return "dying"
-    if h < 35:          return "sick"
-    if energy < 20:     return "sleeping"
-    if hunger > 80:     return "hungry"
+    if h < 15:      return "dying"
+    if h < 35:      return "sick"
+    if energy < 20: return "sleeping"
+    if hunger > 80: return "hungry"
 
     if cpu > 90 or ram > 90:
         return "dying" if p == "dramatic" else "angry"
 
     if cpu > 65 and p == "energetic":
         return "hyperactive"
+
+    # Network-based moods
+    if packet_loss > 10:
+        return "dizzy"
+    if latency is not None and latency > 200:
+        return "sluggish"
 
     if happy < 30 or clean < 20:
         return "sad"
@@ -295,15 +334,15 @@ def _determine_mood(s: dict, m: dict) -> str:
 def update_state(s: dict, m: dict) -> dict:
     now = datetime.now()
     try:
-        last = datetime.fromisoformat(s["last_updated"])
-        elapsed = min((now - last).total_seconds() / 60, 120)  # cap at 2 hours
+        last    = datetime.fromisoformat(s["last_updated"])
+        elapsed = min((now - last).total_seconds() / 60, 120)
     except Exception:
         elapsed = 1.0
 
-    p   = s.get("personality", "cheerful")
-    cpu = m.get("cpu", 0)
-    ram = m.get("ram", 0)
-    disk= m.get("disk", 0)
+    p    = s.get("personality", "cheerful")
+    cpu  = m.get("cpu",  0)
+    ram  = m.get("ram",  0)
+    disk = m.get("disk", 0)
 
     # ── Hunger ──────────────────
     hr = 0.10 + (0.30 if disk > 90 else 0.10 if disk > 75 else 0)
@@ -329,7 +368,7 @@ def update_state(s: dict, m: dict) -> dict:
     if s["hunger"]      > 85: dh -= 0.20
     if s["cleanliness"] < 20: dh -= 0.10
     if cpu < 50 and ram < 60 and disk < 75 and s["hunger"] < 50:
-        dh += 0.06  # natural recovery
+        dh += 0.06
 
     was_critical = s["health"] < 25
     s["health"] = max(0, min(100, s["health"] + dh * elapsed))
@@ -338,17 +377,18 @@ def update_state(s: dict, m: dict) -> dict:
 
     # ── Happiness ───────────────
     dh2 = 0.0
-    if cpu < 40 and ram < 50:           dh2 += 0.10
-    if s["hunger"]      > 70:           dh2 -= 0.20
-    if s["cleanliness"] < 30:           dh2 -= 0.15
-    if s["energy"]      < 30:           dh2 -= 0.10
-    if p == "grumpy":                   dh2 -= 0.05
-    elif p == "cheerful":               dh2 += 0.05
+    if cpu < 40 and ram < 50:       dh2 += 0.10
+    if s["hunger"]      > 70:       dh2 -= 0.20
+    if s["cleanliness"] < 30:       dh2 -= 0.15
+    if s["energy"]      < 30:       dh2 -= 0.10
+    if m.get("packet_loss_pct", 0) > 10: dh2 -= 0.10   # packet loss makes pet sad
+    if p == "grumpy":               dh2 -= 0.05
+    elif p == "cheerful":           dh2 += 0.05
     s["happiness"] = max(0, min(100, s["happiness"] + dh2 * elapsed))
 
     # ── Age ─────────────────────
     try:
-        created = datetime.fromisoformat(s["created_at"])
+        created   = datetime.fromisoformat(s["created_at"])
         s["age_days"] = (now - created).total_seconds() / 86400
     except Exception:
         pass
@@ -409,18 +449,35 @@ def pet_art(s: dict, override_mood: str | None = None) -> list[str]:
 
 def mood_icon(mood: str) -> str:
     return {
-        "happy": "😊", "content": "😌", "sad": "😢", "angry": "😠",
-        "sleeping": "😴", "sick": "🤒", "hungry": "😋", "hyperactive": "⚡",
-        "dying": "💀", "eating": "😋", "playing": "🎮",
+        "happy":      "😊",
+        "content":    "😌",
+        "sad":        "😢",
+        "angry":      "😠",
+        "sleeping":   "😴",
+        "sick":       "🤒",
+        "hungry":     "😋",
+        "hyperactive":"⚡",
+        "dying":      "💀",
+        "eating":     "😋",
+        "playing":    "🎮",
+        "dizzy":      "😵",
+        "sluggish":   "🐌",
     }.get(mood, "😐")
 
 
 def mood_color(mood: str, th: dict) -> str:
     return {
-        "happy": th["secondary"], "content": th["primary"],  "sad": "blue",
-        "angry": th["danger"],    "sleeping": "dim white",    "sick": th["danger"],
-        "hungry": th["warning"],  "hyperactive": "bright_yellow",
-        "dying": "bright_red",
+        "happy":      th["secondary"],
+        "content":    th["primary"],
+        "sad":        "blue",
+        "angry":      th["danger"],
+        "sleeping":   "dim white",
+        "sick":       th["danger"],
+        "hungry":     th["warning"],
+        "hyperactive":"bright_yellow",
+        "dying":      "bright_red",
+        "dizzy":      th["warning"],
+        "sluggish":   "dim cyan",
     }.get(mood, th["primary"])
 
 
@@ -545,11 +602,11 @@ def cmd_status(args=None) -> None:
     pet_tbl.add_column("V")
 
     pet_tbl.add_row("Mood",        Text(f"{mood_icon(mood)} {mood.title()}", style=mc))
-    pet_tbl.add_row("Health",      stat_bar(s["health"],         th))
-    pet_tbl.add_row("Hunger",      stat_bar(100 - s["hunger"],   th))
-    pet_tbl.add_row("Energy",      stat_bar(s["energy"],         th))
-    pet_tbl.add_row("Happiness",   stat_bar(s["happiness"],      th))
-    pet_tbl.add_row("Cleanliness", stat_bar(s["cleanliness"],    th))
+    pet_tbl.add_row("Health",      stat_bar(s["health"],       th))
+    pet_tbl.add_row("Hunger",      stat_bar(100 - s["hunger"], th))
+    pet_tbl.add_row("Energy",      stat_bar(s["energy"],       th))
+    pet_tbl.add_row("Happiness",   stat_bar(s["happiness"],    th))
+    pet_tbl.add_row("Cleanliness", stat_bar(s["cleanliness"],  th))
     pet_tbl.add_row("Age",         Text(f"{s['age_days']:.1f} days", style=th["primary"]))
 
     sys_tbl = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
@@ -561,13 +618,23 @@ def cmd_status(args=None) -> None:
     sys_tbl.add_row("CPU",       inv_bar(m["cpu"]))
     sys_tbl.add_row("RAM",       inv_bar(m["ram"]))
     sys_tbl.add_row("Disk",      inv_bar(m["disk"]))
-    sys_tbl.add_row("Processes", Text(str(m["procs"]), style=th["info"] if "info" in th else th["primary"]))
+    sys_tbl.add_row("Processes", Text(str(m["procs"]), style=th["primary"]))
     sys_tbl.add_row("Uptime",    Text(m["uptime_str"], style=th["secondary"]))
+
+    # Network stats
+    lat = m.get("net_latency")
+    ploss = m.get("packet_loss_pct", 0)
+    lat_str   = f"{lat}ms" if lat is not None else "unreachable"
+    lat_color = th["danger"] if lat is None else th["danger"] if lat > 200 else th["warning"] if lat > 100 else th["secondary"]
+    ploss_color = th["danger"] if ploss > 10 else th["warning"] if ploss > 2 else th["secondary"]
+    sys_tbl.add_row("Latency",     Text(lat_str,        style=lat_color))
+    sys_tbl.add_row("Packet Loss", Text(f"{ploss:.1f}%", style=ploss_color))
+
     if m.get("temp"):
         tc = th["danger"] if m["temp"] > 80 else th["warning"] if m["temp"] > 60 else th["secondary"]
         sys_tbl.add_row("Temp", Text(f"{m['temp']}°C", style=tc))
 
-    title = (
+    title  = (
         f"💀 {s['name']} passed away — {s.get('death_cause','?')}"
         if not s["alive"]
         else f"🐾 {s['name']} the {s['species'].title()} [{s['personality'].title()}]"
@@ -575,7 +642,7 @@ def cmd_status(args=None) -> None:
     border = "red" if not s["alive"] else th["primary"]
 
     console.print(Panel(f"[{th['pet']}]{art}[/{th['pet']}]", title=title, border_style=border))
-    console.print(Panel(pet_tbl, title="Pet Status",  border_style=th["secondary"]))
+    console.print(Panel(pet_tbl, title="Pet Status",   border_style=th["secondary"]))
     console.print(Panel(sys_tbl, title="System Stats", border_style=th.get("info", th["primary"])))
 
     if s.get("achievements"):
@@ -658,7 +725,6 @@ def cmd_play(args=None) -> None:
         console.print(f"[yellow]{s['name']} is too tired to play! Try 'serverpet sleep' first.[/yellow]")
         return
 
-    # ── Mini-game ────────────────────────────────────────────
     secret   = random.randint(1, 10)
     attempts = 3
     won      = False
@@ -786,24 +852,31 @@ def cmd_stats(args=None) -> None:
     tbl.add_column("Value",   justify="right")
     tbl.add_column("Status",  justify="center")
 
-    tbl.add_row("CPU Usage",  f"{m['cpu']:.1f}%",
-                f"{m['cpu']:.0f}%  {si(m['cpu'])}")
-    tbl.add_row("RAM Usage",  f"{m['ram']:.1f}% ({m['ram_used_gb']}GB / {m['ram_total_gb']}GB)",
-                si(m["ram"]))
-    tbl.add_row("Disk Usage", f"{m['disk']:.1f}% ({m['disk_free_gb']}GB free)",
-                si(m["disk"]))
-    tbl.add_row("Processes",  str(m["procs"]), "ℹ️  Info")
-    tbl.add_row("Uptime",     m["uptime_str"], "[green]🟢 Running[/green]")
+    tbl.add_row("CPU Usage",  f"{m['cpu']:.1f}%",                                    si(m["cpu"]))
+    tbl.add_row("RAM Usage",  f"{m['ram']:.1f}% ({m['ram_used_gb']}GB / {m['ram_total_gb']}GB)", si(m["ram"]))
+    tbl.add_row("Disk Usage", f"{m['disk']:.1f}% ({m['disk_free_gb']}GB free)",       si(m["disk"]))
+    tbl.add_row("Processes",  str(m["procs"]),                                        "ℹ️  Info")
+    tbl.add_row("Uptime",     m["uptime_str"],                                        "[green]🟢 Running[/green]")
+
+    lat   = m.get("net_latency")
+    ploss = m.get("packet_loss_pct", 0)
+    lat_str    = f"{lat}ms" if lat is not None else "unreachable"
+    lat_status = "[red]🔴 Unreachable[/red]" if lat is None else si(lat, warn=100, danger=200)
+    tbl.add_row("Net Latency",    lat_str,           lat_status)
+    tbl.add_row("Packet Loss",    f"{ploss:.1f}%",   si(ploss, warn=2, danger=10))
+
     if m.get("temp"):
         tbl.add_row("Temperature", f"{m['temp']}°C", si(m["temp"], 60, 80))
 
     console.print(tbl)
     console.print(Panel(
         f"[bold]How system health maps to {s['name']}:[/bold]\n\n"
-        f"  CPU > 90%   → {s['name']} gets [red]angry[/red] / stressed\n"
-        f"  RAM > 90%   → {s['name']} gets [yellow]tired[/yellow]\n"
-        f"  Disk > 90%  → {s['name']} gets [yellow]hungry[/yellow]\n"
-        f"  All OK      → {s['name']} stays [green]happy[/green] 😊",
+        f"  CPU > 90%         → {s['name']} gets [red]angry[/red] / stressed\n"
+        f"  RAM > 90%         → {s['name']} gets [yellow]tired[/yellow]\n"
+        f"  Disk > 90%        → {s['name']} gets [yellow]hungry[/yellow]\n"
+        f"  Packet loss > 10% → {s['name']} gets [yellow]dizzy[/yellow] 😵\n"
+        f"  Latency > 200ms   → {s['name']} gets [cyan]sluggish[/cyan] 🐌\n"
+        f"  All OK            → {s['name']} stays [green]happy[/green] 😊",
         title="Metric ↔ Pet Mapping", border_style=th["secondary"],
     ))
 
@@ -815,7 +888,7 @@ def cmd_achievements(args=None) -> None:
     tbl = Table(title="🏆 Achievements", box=box.ROUNDED, border_style="gold1")
     tbl.add_column("Achievement", style="bold")
     tbl.add_column("Description")
-    tbl.add_column("Status", justify="center")
+    tbl.add_column("Status",   justify="center")
     tbl.add_column("Unlocked", justify="center")
 
     for key, a in ACHIEVEMENTS.items():
@@ -905,7 +978,6 @@ def cmd_watch(args=None) -> None:
         save_state(st)
         th = theme(st)
 
-        # Animate: wiggle pet frame
         display_mood = "playing" if (frame % 20 == 0 and st["mood"] in ("happy","content")) else st["mood"]
         art_lines = pet_art(st, display_mood)
         art_str   = "\n".join(f"    {l}" for l in art_lines)
@@ -913,21 +985,30 @@ def cmd_watch(args=None) -> None:
         mood = st["mood"]
         mc   = mood_color(mood, th)
 
-        # ── Inline bar helper ─────────────────────
         def ibar(val, w=14):
             filled = max(0, min(w, int((val/100)*w)))
             b  = "█"*filled + "░"*(w-filled)
             c  = th["secondary"] if val > 65 else th["warning"] if val > 35 else th["danger"]
             return f"[{c}][{b}] {val:5.1f}%[/{c}]"
 
-        def sbar(val, w=14):  # system bar — inverse (high = bad)
+        def sbar(val, w=14):
             return ibar(100 - val, w)
+
+        # ── Network display ───────────────────────
+        lat   = m.get("net_latency")
+        ploss = m.get("packet_loss_pct", 0)
+        lat_str   = f"{lat}ms" if lat is not None else "??ms"
+        lat_color = th["danger"] if lat is None or lat > 200 else th["warning"] if lat > 100 else th["secondary"]
+        ploss_color = th["danger"] if ploss > 10 else th["warning"] if ploss > 2 else th["secondary"]
 
         # ── Alerts ────────────────────────────────
         alerts = []
         if m["cpu"]  > 90: alerts.append(f"[{th['danger']}]⚠  CPU CRITICAL {m['cpu']:.0f}%[/{th['danger']}]")
         if m["ram"]  > 85: alerts.append(f"[{th['danger']}]⚠  RAM HIGH     {m['ram']:.0f}%[/{th['danger']}]")
         if m["disk"] > 90: alerts.append(f"[{th['danger']}]⚠  DISK FULL    {m['disk']:.0f}%[/{th['danger']}]")
+        if ploss     > 10: alerts.append(f"[{th['danger']}]😵 PACKET LOSS  {ploss:.1f}%[/{th['danger']}]")
+        if lat is not None and lat > 200:
+            alerts.append(f"[{th['warning']}]🐌 HIGH LATENCY {lat}ms[/{th['warning']}]")
         if st["hunger"]      > 70: alerts.append(f"[{th['warning']}]🍖  Hungry! → serverpet feed[/{th['warning']}]")
         if st["health"]      < 30: alerts.append(f"[{th['danger']}]💊  Critical! → serverpet doctor[/{th['danger']}]")
         if st["energy"]      < 20: alerts.append(f"[{th['warning']}]💤  Tired!   → serverpet sleep[/{th['warning']}]")
@@ -959,6 +1040,8 @@ def cmd_watch(args=None) -> None:
             f"    [bold]CPU       [/bold]{sbar(m['cpu'])}\n"
             f"    [bold]RAM       [/bold]{sbar(m['ram'])}\n"
             f"    [bold]Disk      [/bold]{sbar(m['disk'])}\n"
+            f"    [bold]Latency   [/bold][{lat_color}]{lat_str}[/{lat_color}]\n"
+            f"    [bold]Pkt Loss  [/bold][{ploss_color}]{ploss:.1f}%[/{ploss_color}]\n"
             f"    [bold]Processes [/bold]{m['procs']}\n"
             f"    [bold]Uptime    [/bold][{th['secondary']}]{m['uptime_str']}[/{th['secondary']}]"
             f"{temp_row}\n"
@@ -992,7 +1075,6 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command")
 
-    # start
     p = sub.add_parser("start", help="Create a new pet")
     p.add_argument("--name",        default="Byte",  help="Pet name (default: Byte)")
     p.add_argument("--species",     default="cat",   choices=SPECIES, help="Pet species")
@@ -1021,7 +1103,7 @@ def main() -> None:
     sub.add_parser("reset",        help="Delete pet & start fresh")
     sub.add_parser("info",         help="Command reference & about")
 
-    args   = parser.parse_args()
+    args = parser.parse_args()
     cmds = {
         "start": cmd_start, "status": cmd_status, "watch": cmd_watch,
         "feed":  cmd_feed,  "clean":  cmd_clean,  "play":  cmd_play,
