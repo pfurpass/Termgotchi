@@ -20,30 +20,12 @@ Usage:
     python serverpet.py info
 """
 
-import os
-import sys
 import json
 import time
 import random
 import argparse
-import subprocess
 from datetime import datetime
 from pathlib import Path
-
-# ─── Auto-install dependencies ─────────────────────────────────────────────────
-
-def _ensure_deps():
-    for pkg in ["psutil", "rich"]:
-        try:
-            __import__(pkg)
-        except ImportError:
-            print(f"📦 Installing {pkg}...")
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pkg, "--break-system-packages", "-q"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-
-_ensure_deps()
 
 import psutil
 from rich.console import Console
